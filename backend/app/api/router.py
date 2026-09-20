@@ -12,8 +12,15 @@ from app.schemas.schemas import (
     CongestionFloor,
     DispatchRequest,
     LogOut,
+    MergeRequest,
 )
-from app.services.dispatch_engine import CallRequest, CarState, congestion_by_floor, pick_car
+from app.services.dispatch_engine import (
+    CallRequest,
+    CarState,
+    can_merge_group,
+    congestion_by_floor,
+    pick_car,
+)
 
 api_router = APIRouter()
 
@@ -57,6 +64,56 @@ def create_call(body: CallCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(ticket)
     return ticket
+
+
+@api_router.post("/calls/merge", response_model=CallOut)
+def merge_calls(body: MergeRequest, db: Session = Depends(get_db)):
+    ids = sorted(set(body.call_ids))
+    if len(ids) < 2:
+        raise HTTPException(400, "至少选择两笔不同的呼梯")
+    tickets = db.scalars(
+        select(CallTicket).where(CallTicket.id.in_(ids)).order_by(CallTicket.id)
+    ).all()
+    if len(tickets) != len(ids):
+        raise HTTPException(404, "呼梯不存在")
+    if any(t.status != "waiting" for t in tickets):
+        raise HTTPException(400, "仅等待中的呼梯可合并")
+    first = tickets[0]
+    if any(
+        t.building_id != first.building_id
+        or t.floor != first.floor
+        or t.direction != first.direction
+        for t in tickets
+    ):
+        raise HTTPException(400, "仅同楼栋同层同向的呼梯可合并")
+    total = sum(t.passengers for t in tickets)
+    car_rows = db.scalars(
+        select(ElevatorCar).where(ElevatorCar.building_id == first.building_id)
+    ).all()
+    cars = [CarState(c.id, c.floor, c.direction, c.load, c.capacity) for c in car_rows]
+    if not can_merge_group(cars, total):
+        db.add(
+            DispatchLog(
+                call_id=first.id,
+                car_id=None,
+                detail=f"合并 {len(tickets)} 笔共 {total} 人失败：无轿厢剩余容量，保持原单",
+            )
+        )
+        db.commit()
+        raise HTTPException(409, "合并后人数超出所有轿厢剩余容量，已保持原多笔不变")
+    first.passengers = total
+    for t in tickets[1:]:
+        db.delete(t)
+    db.add(
+        DispatchLog(
+            call_id=first.id,
+            car_id=None,
+            detail=f"同层同向合并 {len(tickets)} 笔为 #{first.id}，共 {total} 人",
+        )
+    )
+    db.commit()
+    db.refresh(first)
+    return first
 
 
 @api_router.post("/dispatch", response_model=CallOut)

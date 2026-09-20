@@ -1,4 +1,10 @@
-from app.services.dispatch_engine import CallRequest, CarState, pick_car, score_car
+from app.services.dispatch_engine import (
+    CallRequest,
+    CarState,
+    can_merge_group,
+    pick_car,
+    score_car,
+)
 
 
 def test_reject_when_full():
@@ -29,3 +35,12 @@ def test_closer_idle_wins_when_opposite():
     best = pick_car(cars, call)
     assert best is not None
     assert best.car_id == 2
+
+
+def test_can_merge_group_capacity_check():
+    tight = CarState(1, 1, "idle", load=4, capacity=8)  # 剩余 4
+    roomy = CarState(2, 1, "idle", load=0, capacity=10)  # 剩余 10
+    assert can_merge_group([tight], 4) is True  # 恰好接得住
+    assert can_merge_group([tight], 5) is False  # 唯一轿厢接不住
+    assert can_merge_group([tight, roomy], 5) is True  # 任一台够即可
+    assert can_merge_group([], 1) is False  # 无轿厢

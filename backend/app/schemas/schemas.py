@@ -44,6 +44,10 @@ class DispatchRequest(BaseModel):
     call_id: int
 
 
+class MergeRequest(BaseModel):
+    call_ids: list[int] = Field(min_length=2)
+
+
 class LogOut(BaseModel):
     id: int
     call_id: int

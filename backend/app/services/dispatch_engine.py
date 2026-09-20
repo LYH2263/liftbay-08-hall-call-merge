@@ -66,6 +66,11 @@ def pick_car(cars: list[CarState], call: CallRequest) -> ScoreResult | None:
     return max(accepted, key=lambda r: r.score)
 
 
+def can_merge_group(cars: list[CarState], total_passengers: int) -> bool:
+    """Merging is allowed only if some car's remaining capacity fits the merged group."""
+    return any(c.load + total_passengers <= c.capacity for c in cars)
+
+
 def congestion_by_floor(calls: list[CallRequest]) -> dict[int, int]:
     counts: dict[int, int] = {}
     for c in calls:
