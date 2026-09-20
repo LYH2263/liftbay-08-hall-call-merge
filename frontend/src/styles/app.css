@@ -237,6 +237,7 @@ button {
 }
 .mono { font-family: "IBM Plex Mono", monospace; }
 .err { color: #ff8e8e; } .ok { color: #7ddea0; }
+.hint { color: var(--shaft-muted); font-size: .78rem; }
 
 /* Keep page-level shaft helpers for /cars if visited */
 .shaft-wrap { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: .5rem; }

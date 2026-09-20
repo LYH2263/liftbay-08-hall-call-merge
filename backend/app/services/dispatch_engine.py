@@ -66,6 +66,11 @@ def pick_car(cars: list[CarState], call: CallRequest) -> ScoreResult | None:
     return max(accepted, key=lambda r: r.score)
 
 
+def any_car_accepts(cars: list[CarState], passengers: int) -> bool:
+    """True if at least one car has enough remaining capacity for the whole group."""
+    return any(car.load + passengers <= car.capacity for car in cars)
+
+
 def congestion_by_floor(calls: list[CallRequest]) -> dict[int, int]:
     counts: dict[int, int] = {}
     for c in calls:

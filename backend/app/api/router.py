@@ -12,8 +12,15 @@ from app.schemas.schemas import (
     CongestionFloor,
     DispatchRequest,
     LogOut,
+    MergeRequest,
 )
-from app.services.dispatch_engine import CallRequest, CarState, congestion_by_floor, pick_car
+from app.services.dispatch_engine import (
+    CallRequest,
+    CarState,
+    any_car_accepts,
+    congestion_by_floor,
+    pick_car,
+)
 
 api_router = APIRouter()
 
@@ -57,6 +64,43 @@ def create_call(body: CallCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(ticket)
     return ticket
+
+
+@api_router.post("/calls/merge", response_model=CallOut)
+def merge_calls(body: MergeRequest, db: Session = Depends(get_db)):
+    call_ids = list(dict.fromkeys(body.call_ids))
+    if len(call_ids) < 2:
+        raise HTTPException(400, "至少选择两笔呼梯才能合并")
+    tickets = [db.get(CallTicket, cid) for cid in call_ids]
+    if any(t is None for t in tickets):
+        raise HTTPException(404, "呼梯不存在")
+    if any(t.status != "waiting" for t in tickets):
+        raise HTTPException(400, "仅 waiting 状态的呼梯可以合并")
+    first = tickets[0]
+    if any(
+        (t.building_id, t.floor, t.direction)
+        != (first.building_id, first.floor, first.direction)
+        for t in tickets[1:]
+    ):
+        raise HTTPException(400, "只能合并同楼栋、同候梯层、同方向的呼梯")
+
+    total_passengers = sum(t.passengers for t in tickets)
+    car_rows = db.scalars(
+        select(ElevatorCar).where(ElevatorCar.building_id == first.building_id)
+    ).all()
+    cars = [CarState(c.id, c.floor, c.direction, c.load, c.capacity) for c in car_rows]
+    if not any_car_accepts(cars, total_passengers):
+        # 合并后没有任何轿厢接得住：保持原多笔不变
+        raise HTTPException(409, "合并后总人数超出全部轿厢剩余容量，合并失败")
+
+    survivor = min(tickets, key=lambda t: t.id)
+    for t in tickets:
+        if t is not survivor:
+            db.delete(t)
+    survivor.passengers = total_passengers
+    db.commit()
+    db.refresh(survivor)
+    return survivor
 
 
 @api_router.post("/dispatch", response_model=CallOut)
